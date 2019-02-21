@@ -14,38 +14,41 @@ namespace SocketClientTest.Client
 {
     public class SimpelSocketClient
     {
-        List<String> messageBuffer;
-        string mesReceived = String.Empty;
+        List<string> messageBuffer;
+        string mesReceived = string.Empty;
         List<object> result = new List<object>();
 
-        IPHostEntry ipHost;
-        IPAddress myIp;
-        readonly int port = 8889;
-        readonly string serverIp = "192.168.1.2";
-        TcpClient master;
-        NetworkStream ns;
-        StreamReader _sr;
-        Task _reader;
-        Task _writer;
+        //IPHostEntry ipHost;
+        //IPAddress myIp;
+        public int Port { get; set; }
+        public string ServerIp { get; set; }
+        public TcpClient Master { get; set; }
+        private Task _reader;
+        private Task _writer;
 
-        public SimpelSocketClient()
+        private SimpelSocketClient()
         {
-            ipHost = Dns.GetHostEntry(Dns.GetHostName());
-            myIp = ipHost.AddressList[2];
-            _reader = new Task(() => ReadStream());
-            _writer = new Task(() => WriteToStream());
+            //ipHost = Dns.GetHostEntry(Dns.GetHostName());
+            //myIp = ipHost.AddressList[2];
             messageBuffer = new List<string>();
-            StartClient();
         }
 
-        public SimpelSocketClient(Socket socket, int port, IPAddress serverEndPoint)
+        /// <summary>
+        /// Provides a client connection at a specified port and server endpoint
+        /// </summary>
+        /// <param name="tcpSocket">TcpClient for the socket connection</param>
+        /// <param name="port">Port of the server endpoint</param>
+        /// <param name="serverEndPoint">Ip address of the server endpoint</param>
+        public SimpelSocketClient(TcpClient tcpSocket, int port, string serverEndPoint): base()
         {
-            ½½
+            Master = tcpSocket;
+            Port = port;
+            ServerIp = serverEndPoint;
         }
 
-        private void WriteToStream()
+        private void WriteToStream(NetworkStream ns)
         {
-            while (master.Connected)
+            while (Master.Connected)
             {
                 bool sending = true;
                 string mess;
@@ -75,7 +78,7 @@ namespace SocketClientTest.Client
                     {
                         Thread.Sleep(500);
                          oldMes += "Hej Med dig! ";
-                    SendXML(oldMes);
+                    SendXML(ns, oldMes);
                     }
                     //Console.WriteLine("Sending: " + mess);
                 }
@@ -83,11 +86,11 @@ namespace SocketClientTest.Client
             Console.WriteLine("Writer stopped");
         }
 
-        private void SendXML(string v)
+        private void SendXML(NetworkStream ns, string v)
         {
             XmlSerializer xmlSer;
             Message ms = new Message(new To(), new From(), new List<User>(), new MessageBody());
-            ms.From.Ip = myIp.ToString();
+            ms.From.Ip = Dns.GetHostName();
             ms.From.Name = "Marc";
             ms.To.Name = "AnyOne";
             ms.To.Ip = "192.168.1.13";
@@ -98,10 +101,8 @@ namespace SocketClientTest.Client
 
         public void StartClient()
         {
-            IPEndPoint serverEndPoint = new IPEndPoint(IPAddress.Parse(serverIp), port);
+            IPEndPoint serverEndPoint = new IPEndPoint(IPAddress.Parse(ServerIp), Port);
             Console.WriteLine("This is the client...");
-            // Create a Tcp/ip listener
-            master = new TcpClient();
             ConnectToServer();
         }
 
@@ -109,17 +110,16 @@ namespace SocketClientTest.Client
         {
             try
             {
-                master.Connect(serverIp, port);
-                Console.WriteLine("Connected to: {0}", serverIp);
-                ns = master.GetStream();
-                //master.Client.ReceiveBufferSize = 32000;
-                //master.Client.NoDelay = false;
-                _sr = new StreamReader(ns, Encoding.UTF8);
+                Master.Connect(ServerIp, Port);
+                Console.WriteLine("Connected to: {0}", ServerIp);
+                //ns = Master.GetStream();
+                _reader = new Task(() => ReadStream(Master.GetStream()));
+                _writer = new Task(() => WriteToStream(Master.GetStream()));
                 _reader.Start();
                 //_writer.Start();
                 //reader.Start();
                 //writer.Start();
-                WriteToStream();
+                WriteToStream(Master.GetStream());
             }
             catch (Exception e)
             {
@@ -127,12 +127,14 @@ namespace SocketClientTest.Client
             }
             finally
             {
-                master.Close();
+                Master.Close();
             }
         }
 
         private string SendMessage(string message, string reciever = "ZBC", string ip = "192.168.1.6")
         {
+            IPHostEntry ipHost = Dns.GetHostEntry(Dns.GetHostName());
+            IPAddress myIp = ipHost.AddressList[2];
             // nickname:ip
             string myNickname = Environment.MachineName;
             return myNickname + ":" + myIp + ":" + reciever + ":" + ip + ":" + message + Environment.NewLine;
@@ -143,27 +145,27 @@ namespace SocketClientTest.Client
         {
             XmlSerializer xmlSer;
             Message ms = new Message(new To(), new From(), new List<User>(), new MessageBody());
-            ms.From.Ip = myIp.ToString();
+            ms.From.Ip = Dns.GetHostEntry(Dns.GetHostName()).AddressList[2].ToString();
             ms.From.Name = "Marc";
             ms.To.Name = "AnyOne";
             ms.To.Ip = "192.168.1.13";
             ms.Mb.Body = "Hello from XML";
             xmlSer = new XmlSerializer(typeof(Message));
-            xmlSer.Serialize(ns, ms);
+            xmlSer.Serialize(Master.GetStream(), ms);
         }
 
 
-        private void ReadStream()
+        private void ReadStream(NetworkStream ns)
         {
-            Thread.Sleep(500);
-            while (master.Connected)
+            Thread.Sleep(500); // So that the client can properly connect before reading
+            while (Master.Connected)
             {
                 byte[] buffer;
                 try
                 {
                     if (ns.CanRead)
                     {
-                        buffer = new byte[master.ReceiveBufferSize];
+                        buffer = new byte[Master.ReceiveBufferSize];
 
                         var bytesRead = ns.Read(buffer, 0, buffer.Length);
                         ReadResponse(bytesRead, buffer);
@@ -206,6 +208,7 @@ namespace SocketClientTest.Client
 
                 }
             }
+            // Connection has stopped - Thread needs to be stopped
             try
             {
                 Console.WriteLine("Reader stopped...");
@@ -229,7 +232,7 @@ namespace SocketClientTest.Client
             {
                 string[] xmls = mesReceived.Split(new string[] { "</message>" }, StringSplitOptions.None);
                 Console.WriteLine("Message splitted");
-                mesReceived = String.Empty;
+                mesReceived = string.Empty;
                 foreach (var item in xmls)
                 {
                     if (item.Contains("</Message>"))

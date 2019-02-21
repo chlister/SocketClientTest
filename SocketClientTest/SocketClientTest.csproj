@@ -76,6 +76,8 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Client\IStreamReader.cs" />
+    <Compile Include="Client\IStreamWriter.cs" />
     <Compile Include="Client\OldClients\AsynchronousClient.cs" />
     <Compile Include="Client\Models\From.cs" />
     <Compile Include="Client\Models\Message.cs" />
