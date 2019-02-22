@@ -2,9 +2,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,9 +14,11 @@ namespace SocketClientTest.Client
 {
     public class SimpelSocketClient
     {
-        List<string> messageBuffer;
+        public List<string> MessageBuffer { get; set; }
         string mesReceived = string.Empty;
-        List<object> result = new List<object>();
+        List<object> result;
+        private static readonly byte[] Key = Convert.FromBase64String("W+jcxfBJm37AAZujiktg4qCdy3k8D+vIrj4exFxFpIY=");
+        public List<User> Users { get; private set; }
 
         //IPHostEntry ipHost;
         //IPAddress myIp;
@@ -30,7 +32,8 @@ namespace SocketClientTest.Client
         {
             //ipHost = Dns.GetHostEntry(Dns.GetHostName());
             //myIp = ipHost.AddressList[2];
-            messageBuffer = new List<string>();
+            MessageBuffer = new List<string>();
+            result = new List<object>();
         }
 
         /// <summary>
@@ -39,8 +42,11 @@ namespace SocketClientTest.Client
         /// <param name="tcpSocket">TcpClient for the socket connection</param>
         /// <param name="port">Port of the server endpoint</param>
         /// <param name="serverEndPoint">Ip address of the server endpoint</param>
-        public SimpelSocketClient(TcpClient tcpSocket, int port, string serverEndPoint): base()
+        public SimpelSocketClient(TcpClient tcpSocket, int port, string serverEndPoint) : base()
         {
+            Users = new List<User>();
+            MessageBuffer = new List<string>();
+            result = new List<object>();
             Master = tcpSocket;
             Port = port;
             ServerIp = serverEndPoint;
@@ -52,11 +58,14 @@ namespace SocketClientTest.Client
             {
                 bool sending = true;
                 string mess;
+                string receiverIp;
                 do
                 {
                     // Define message
                     Console.Write("Inut message to send: ");
                     mess = Console.ReadLine();
+                    Console.Write("Inut Ip to send to: ");
+                    receiverIp = Console.ReadLine();
                     sending = false;
                 } while (sending);
                 // Switch on commands
@@ -67,36 +76,82 @@ namespace SocketClientTest.Client
                 }
                 else
                 {
-                    Console.WriteLine("Sending");
-                    //mess = SendMessage(mess);
-                    //var byteMess = Encoding.UTF8.GetBytes(mess);
-                    //ns.Write(byteMess, 0, byteMess.Length);
-                    // Send XML
-                    //Console.ReadLine();
-                    string oldMes = "";
-                    for (int i = 0; i < 50000; i++)
-                    {
-                        Thread.Sleep(500);
-                         oldMes += "Hej Med dig! ";
-                    SendXML(ns, oldMes);
-                    }
-                    //Console.WriteLine("Sending: " + mess);
+                    Console.WriteLine("Sending: {0}", mess);
+                    SendXML(ns, mess, receiverIp);
                 }
             }
             Console.WriteLine("Writer stopped");
         }
 
-        private void SendXML(NetworkStream ns, string v)
+        private void SendXML(NetworkStream ns, string message, string recieverIp)
         {
+            IPHostEntry ipHost = Dns.GetHostEntry(Dns.GetHostName());
+            IPAddress myIp = ipHost.AddressList[2];
             XmlSerializer xmlSer;
             Message ms = new Message(new To(), new From(), new List<User>(), new MessageBody());
-            ms.From.Ip = Dns.GetHostName();
+            ms.From.Ip = myIp.ToString();
             ms.From.Name = "Marc";
             ms.To.Name = "AnyOne";
-            ms.To.Ip = "192.168.1.13";
-            ms.Mb.Body = String.Format("Get this {0}!", v);
+            ms.To.Ip = recieverIp;
+
+            ms.Mb.Body = EncryptMessage(Key, message);
             xmlSer = new XmlSerializer(typeof(Message));
             xmlSer.Serialize(ns, ms);
+        }
+
+        private string EncryptMessage(byte[] key, string message)
+        {
+            byte[] encrypted;
+            using (Aes myAes = Aes.Create())
+            {
+                myAes.Padding = PaddingMode.PKCS7;
+                myAes.KeySize = 128;
+                myAes.IV = new byte[128 / 8];
+                myAes.Key = Key;
+                //byte[] messBytes = Encoding.UTF8.GetBytes(message);
+                ICryptoTransform encr = myAes.CreateEncryptor(myAes.Key, myAes.IV);
+
+                using (MemoryStream ms = new MemoryStream())
+                {
+                    using (CryptoStream cs = new CryptoStream(ms, encr, CryptoStreamMode.Write))
+                    {
+                        using (StreamWriter sw = new StreamWriter(cs))
+                        {
+                            sw.Write(message);
+                        }
+                        encrypted = ms.ToArray();
+                    }
+                }
+            }
+            return Convert.ToBase64String(encrypted);
+        }
+
+        private string DecryptUsingAes(string body)
+        {
+            byte[] encrypted = Convert.FromBase64String(body);
+
+            string plaintext = "";
+            using (Aes myAes = Aes.Create())
+            {
+                myAes.Padding = PaddingMode.PKCS7;
+                myAes.KeySize = 128;
+                myAes.IV = new byte[128 / 8];
+                myAes.Key = Key;
+                //byte[] messBytes = Encoding.UTF8.GetBytes(message);
+                ICryptoTransform encr = myAes.CreateDecryptor(myAes.Key, myAes.IV);
+
+                using (MemoryStream ms = new MemoryStream(encrypted))
+                {
+                    using (CryptoStream cs = new CryptoStream(ms, encr, CryptoStreamMode.Read))
+                    {
+                        using (StreamReader sw = new StreamReader(cs))
+                        {
+                            plaintext = sw.ReadToEnd();
+                        }
+                    }
+                }
+            }
+            return plaintext;
         }
 
         public void StartClient()
@@ -112,13 +167,9 @@ namespace SocketClientTest.Client
             {
                 Master.Connect(ServerIp, Port);
                 Console.WriteLine("Connected to: {0}", ServerIp);
-                //ns = Master.GetStream();
                 _reader = new Task(() => ReadStream(Master.GetStream()));
                 _writer = new Task(() => WriteToStream(Master.GetStream()));
                 _reader.Start();
-                //_writer.Start();
-                //reader.Start();
-                //writer.Start();
                 WriteToStream(Master.GetStream());
             }
             catch (Exception e)
@@ -168,8 +219,8 @@ namespace SocketClientTest.Client
                         buffer = new byte[Master.ReceiveBufferSize];
 
                         var bytesRead = ns.Read(buffer, 0, buffer.Length);
-                        ReadResponse(bytesRead, buffer);
-                        //Console.WriteLine("Server response: {0}", Encoding.UTF8.GetString(buffer, 0, bytesRead));
+                        if (bytesRead > 0)
+                            ReadResponse(bytesRead, buffer, MessageBuffer);
                     }
                 }
                 catch (ArgumentOutOfRangeException e)
@@ -222,7 +273,7 @@ namespace SocketClientTest.Client
             }
         }
 
-        private void ReadResponse(int bytesRead, byte[] buffer)
+        private void ReadResponse(int bytesRead, byte[] buffer, List<string> messageBuffer)
         {
 
             //string mess = Encoding.UTF8.GetString(buffer, 0, bytesRead);
@@ -232,15 +283,25 @@ namespace SocketClientTest.Client
             {
                 string[] xmls = mesReceived.Split(new string[] { "</message>" }, StringSplitOptions.None);
                 Console.WriteLine("Message splitted");
+                Console.WriteLine(mesReceived);
                 mesReceived = string.Empty;
                 foreach (var item in xmls)
                 {
-                    if (item.Contains("</Message>"))
+                    try
                     {
-                        messageBuffer.Add(item);
+                        if (item.Contains("</Message>"))
+                        {
+                            //if (!item.Contains("<RSAKeyValue"))
+                            messageBuffer.Add(item);
+                        }
+                        else
+                            mesReceived += item;
                     }
-                    else
-                        mesReceived += item;
+                    catch (Exception e)
+                    {
+                        Console.WriteLine(e.StackTrace);
+                        Console.WriteLine(e.Message);
+                    }
                 }
             }
 
@@ -264,8 +325,16 @@ namespace SocketClientTest.Client
                 {
                     try
                     {
-                        if (item is Message)
-                            Console.WriteLine("Message recieve from {0}. {1}", item.From.Ip, item.Mb.Body);
+                        if (item.Mb.Body != null)
+                            Console.WriteLine("Message recieve from {0}. {1}", item.From.Ip, DecryptUsingAes(item.Mb.Body));
+                        if (item.Users.Count > 0)
+                        {
+                            for (int i = 0; i < item.Users.Count; i++)
+                            {
+                                if (Users.Count == 0 || Users)
+                                    Users.Add(new User(item.Users[i].Name, item.Users[i].Ip));
+                            }
+                        }
                     }
                     catch (Exception e)
                     {
@@ -275,6 +344,7 @@ namespace SocketClientTest.Client
                 result.Clear();
             }
         }
+
 
         private void DeSerializeObject(List<string> messageBuffer)
         {

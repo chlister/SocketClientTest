@@ -14,7 +14,7 @@ namespace SocketClientTest
     {
         static void Main(string[] args)
         {
-            SimpelSocketClient sl = new SimpelSocketClient();
+            SimpelSocketClient sl = new SimpelSocketClient(new TcpClient(), 8890, "192.168.1.2");
             sl.StartClient();
             
             Console.WriteLine("Program has ended....");
