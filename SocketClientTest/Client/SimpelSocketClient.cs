@@ -20,10 +20,8 @@ namespace SocketClientTest.Client
         private static readonly byte[] Key = Convert.FromBase64String("W+jcxfBJm37AAZujiktg4qCdy3k8D+vIrj4exFxFpIY=");
         public List<User> Users { get; private set; }
 
-        //IPHostEntry ipHost;
-        //IPAddress myIp;
         public int Port { get; set; }
-        public string ServerIp { get; set; }
+        public string ServerIp { get; private set; }
         public TcpClient Master { get; set; }
         private Task _reader;
         private Task _writer;
@@ -52,6 +50,10 @@ namespace SocketClientTest.Client
             ServerIp = serverEndPoint;
         }
 
+        /// <summary>
+        /// Write to a given networkstream
+        /// </summary>
+        /// <param name="ns"></param>
         private void WriteToStream(NetworkStream ns)
         {
             while (Master.Connected)
@@ -81,6 +83,34 @@ namespace SocketClientTest.Client
                 }
             }
             Console.WriteLine("Writer stopped");
+        }
+
+        /// <summary>
+        /// Write a specified Message object to a NetworkStream
+        /// </summary>
+        /// <param name="ns"></param>
+        /// <param name="message"></param>
+        public void WriteToStream(NetworkStream ns, Message message)
+        {
+            if (Master.Connected)
+            {
+                SendXML(ns, message);
+            }
+            else
+            {
+                throw new SocketException();
+            }
+        }
+
+        /// <summary>
+        /// Sends a given Message object over the NetworkStream
+        /// </summary>
+        /// <param name="ns">NetworkStream</param>
+        /// <param name="message">Message Object</param>
+        private void SendXML(NetworkStream ns, Message message)
+        {
+            XmlSerializer serializer = new XmlSerializer(typeof(Message));
+            serializer.Serialize(ns,message);
         }
 
         private void SendXML(NetworkStream ns, string message, string recieverIp)
@@ -204,7 +234,6 @@ namespace SocketClientTest.Client
             xmlSer = new XmlSerializer(typeof(Message));
             xmlSer.Serialize(Master.GetStream(), ms);
         }
-
 
         private void ReadStream(NetworkStream ns)
         {
@@ -331,7 +360,8 @@ namespace SocketClientTest.Client
                         {
                             for (int i = 0; i < item.Users.Count; i++)
                             {
-                                if (Users.Count == 0 || Users)
+                                var user = new User(item.Users[i].Name, item.Users[i].Ip);
+                                if (!Users.Contains(user))
                                     Users.Add(new User(item.Users[i].Name, item.Users[i].Ip));
                             }
                         }
