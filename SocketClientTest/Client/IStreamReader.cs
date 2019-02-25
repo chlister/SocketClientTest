@@ -13,6 +13,6 @@ namespace SocketClientTest.Client
         /// Read data from a networkstream
         /// </summary>
         /// <param name="networkStream"></param>
-        void ReadStream(NetworkStream networkStream);
+        byte[] ReadStream(NetworkStream networkStream);
     }
 }

@@ -10,7 +10,6 @@ namespace SocketClientTest.Client
 {
     interface IStreamWriter
     {
-        void WriteToStream(NetworkStream networkStream);
         void WriteToStream(NetworkStream networkStream, Message message);
     }
 }
