@@ -146,7 +146,7 @@ namespace SocketClientTest.Client
             xmlSer = new XmlSerializer(typeof(Message));
             xmlSer.Serialize(ns, ms);
         }
-        
+
         private string EncryptMessage(byte[] key, string message)
         {
             byte[] encrypted;
@@ -173,32 +173,46 @@ namespace SocketClientTest.Client
             }
             return Convert.ToBase64String(encrypted);
         }
-        private string EncryptMessage(byte[] key, string message, User user)
+
+        /// <summary>
+        /// Encrypt a message using a users public key
+        /// </summary>
+        /// <param name="key"></param>
+        /// <param name="message"></param>
+        /// <param name="user"></param>
+        /// <returns></returns>
+        private string EncryptMessage(string message, User user)
         {
             byte[] encrypted;
-            byte[] pubKey = UsersOnline.Where // TODO: Find if we have the user pub key
-            using (Aes myAes = Aes.Create())
+            User savedUser = UsersOnline.SingleOrDefault(u => u.Ip == user.Ip);
+            if (savedUser != null)
             {
-                myAes.Padding = PaddingMode.PKCS7;
-                myAes.KeySize = 128;
-                myAes.IV = new byte[128 / 8];
-                myAes.Key = Key;
-                //byte[] messBytes = Encoding.UTF8.GetBytes(message);
-                ICryptoTransform encr = myAes.CreateEncryptor(myAes.Key, myAes.IV);
+                byte[] pubKey = Encoding.ASCII.GetBytes(savedUser.RSAKeyValue.Modulus); // TODO: Find if we have the user pub key
 
-                using (MemoryStream ms = new MemoryStream())
+                using (Aes myAes = Aes.Create())
                 {
-                    using (CryptoStream cs = new CryptoStream(ms, encr, CryptoStreamMode.Write))
+                    myAes.Padding = PaddingMode.PKCS7;
+                    myAes.KeySize = 128;
+                    myAes.IV = new byte[128 / 8];
+                    myAes.Key = pubKey;
+                    //byte[] messBytes = Encoding.UTF8.GetBytes(message);
+                    ICryptoTransform encr = myAes.CreateEncryptor(myAes.Key, myAes.IV);
+
+                    using (MemoryStream ms = new MemoryStream())
                     {
-                        using (StreamWriter sw = new StreamWriter(cs))
+                        using (CryptoStream cs = new CryptoStream(ms, encr, CryptoStreamMode.Write))
                         {
-                            sw.Write(message);
+                            using (StreamWriter sw = new StreamWriter(cs))
+                            {
+                                sw.Write(message);
+                            }
+                            encrypted = ms.ToArray();
                         }
-                        encrypted = ms.ToArray();
                     }
                 }
+                return Convert.ToBase64String(encrypted);
             }
-            return Convert.ToBase64String(encrypted);
+            return null;
         }
 
         private string DecryptUsingAes(string body)
