@@ -78,13 +78,13 @@
   <ItemGroup>
     <Compile Include="Client\IStreamReader.cs" />
     <Compile Include="Client\IStreamWriter.cs" />
+    <Compile Include="Client\Models\RSAKeyValue.cs" />
     <Compile Include="Client\OldClients\AesExample.cs" />
     <Compile Include="Client\OldClients\AsynchronousClient.cs" />
-    <Compile Include="Client\Models\From.cs" />
     <Compile Include="Client\Models\Message.cs" />
     <Compile Include="Client\Models\MessageBody.cs" />
-    <Compile Include="Client\Models\To.cs" />
     <Compile Include="Client\Models\User.cs" />
+    <Compile Include="Client\OldClients\Program.cs" />
     <Compile Include="Client\OldClients\SimpelAsyncClient.cs" />
     <Compile Include="Client\SimpelSocketClient.cs" />
     <Compile Include="Client\OldClients\SynchronousSocketClient.cs" />

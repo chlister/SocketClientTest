@@ -8,21 +8,26 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Linq;
 using System.Xml.Serialization;
 
 namespace SocketClientTest.Client
 {
     public class SimpelSocketClient
     {
+        Dictionary<User, string> UserAndKey = new Dictionary<User, string>();
         public List<string> MessageBuffer { get; set; }
+        private static List<string> keyBuffer = new List<string>();
         string mesReceived = string.Empty;
         List<object> result;
         private static readonly byte[] Key = Convert.FromBase64String("W+jcxfBJm37AAZujiktg4qCdy3k8D+vIrj4exFxFpIY=");
-        public List<User> Users { get; private set; }
+        public List<User> UsersOnline { get; private set; }
 
         public int Port { get; set; }
         public string ServerIp { get; private set; }
         public TcpClient Master { get; set; }
+        static RSACryptoServiceProvider myKeyRSA = new RSACryptoServiceProvider(2048);
+        static RSAParameters myRSAKeyInfo;
         private Task _reader;
         private Task _writer;
 
@@ -42,7 +47,7 @@ namespace SocketClientTest.Client
         /// <param name="serverEndPoint">Ip address of the server endpoint</param>
         public SimpelSocketClient(TcpClient tcpSocket, int port, string serverEndPoint) : base()
         {
-            Users = new List<User>();
+            UsersOnline = new List<User>();
             MessageBuffer = new List<string>();
             result = new List<object>();
             Master = tcpSocket;
@@ -66,21 +71,34 @@ namespace SocketClientTest.Client
                     // Define message
                     Console.Write("Inut message to send: ");
                     mess = Console.ReadLine();
-                    Console.Write("Inut Ip to send to: ");
-                    receiverIp = Console.ReadLine();
+
                     sending = false;
                 } while (sending);
                 // Switch on commands
-                if (mess.ToUpper() == "EXIT")
+                switch (mess.ToUpper())
                 {
-                    ns.Dispose();
-                    break;
+                    case "EXIT":
+                        ns.Dispose();
+                        break;
+                    case "USERS":
+                        Console.WriteLine("Users online: ");
+                        foreach (var user in UsersOnline)
+                        {
+                            Console.WriteLine("Username: {0}. " +
+                                Environment.NewLine + "IP: {1} \n " +
+                                "PublicKey: {2}",
+                                user.Name, user.Ip, user.RSAKeyValue.Modulus);
+                        }
+                        break;
+                    default:
+                        Console.Write("Inut Ip to send to: ");
+                        receiverIp = Console.ReadLine();
+                        Console.WriteLine("Sending: {0}", mess);
+                        SendXML(ns, mess, receiverIp);
+                        break;
                 }
-                else
-                {
-                    Console.WriteLine("Sending: {0}", mess);
-                    SendXML(ns, mess, receiverIp);
-                }
+
+
             }
             Console.WriteLine("Writer stopped");
         }
@@ -110,7 +128,7 @@ namespace SocketClientTest.Client
         private void SendXML(NetworkStream ns, Message message)
         {
             XmlSerializer serializer = new XmlSerializer(typeof(Message));
-            serializer.Serialize(ns,message);
+            serializer.Serialize(ns, message);
         }
 
         private void SendXML(NetworkStream ns, string message, string recieverIp)
@@ -118,7 +136,7 @@ namespace SocketClientTest.Client
             IPHostEntry ipHost = Dns.GetHostEntry(Dns.GetHostName());
             IPAddress myIp = ipHost.AddressList[2];
             XmlSerializer xmlSer;
-            Message ms = new Message(new To(), new From(), new List<User>(), new MessageBody());
+            Message ms = new Message(new User(), new User(), new List<User>(), new MessageBody());
             ms.From.Ip = myIp.ToString();
             ms.From.Name = "Marc";
             ms.To.Name = "AnyOne";
@@ -128,10 +146,37 @@ namespace SocketClientTest.Client
             xmlSer = new XmlSerializer(typeof(Message));
             xmlSer.Serialize(ns, ms);
         }
-
+        
         private string EncryptMessage(byte[] key, string message)
         {
             byte[] encrypted;
+            using (Aes myAes = Aes.Create())
+            {
+                myAes.Padding = PaddingMode.PKCS7;
+                myAes.KeySize = 128;
+                myAes.IV = new byte[128 / 8];
+                myAes.Key = Key;
+                //byte[] messBytes = Encoding.UTF8.GetBytes(message);
+                ICryptoTransform encr = myAes.CreateEncryptor(myAes.Key, myAes.IV);
+
+                using (MemoryStream ms = new MemoryStream())
+                {
+                    using (CryptoStream cs = new CryptoStream(ms, encr, CryptoStreamMode.Write))
+                    {
+                        using (StreamWriter sw = new StreamWriter(cs))
+                        {
+                            sw.Write(message);
+                        }
+                        encrypted = ms.ToArray();
+                    }
+                }
+            }
+            return Convert.ToBase64String(encrypted);
+        }
+        private string EncryptMessage(byte[] key, string message, User user)
+        {
+            byte[] encrypted;
+            byte[] pubKey = UsersOnline.Where // TODO: Find if we have the user pub key
             using (Aes myAes = Aes.Create())
             {
                 myAes.Padding = PaddingMode.PKCS7;
@@ -200,6 +245,7 @@ namespace SocketClientTest.Client
                 _reader = new Task(() => ReadStream(Master.GetStream()));
                 _writer = new Task(() => WriteToStream(Master.GetStream()));
                 _reader.Start();
+                SendPublicKey();
                 WriteToStream(Master.GetStream());
             }
             catch (Exception e)
@@ -209,6 +255,22 @@ namespace SocketClientTest.Client
             finally
             {
                 Master.Close();
+            }
+        }
+
+        /// <summary>
+        /// Sends the public key to the server
+        /// </summary>
+        private void SendPublicKey()
+        {
+            Console.WriteLine("Send public key to server...");
+
+            myRSAKeyInfo = myKeyRSA.ExportParameters(false);
+            var netStream = Master.GetStream();
+            if (netStream.CanWrite)
+            {
+                byte[] keySender = Encoding.ASCII.GetBytes(myKeyRSA.ToXmlString(false));
+                netStream.Write(keySender, 0, keySender.Length);
             }
         }
 
@@ -225,7 +287,7 @@ namespace SocketClientTest.Client
         private void SendXML()
         {
             XmlSerializer xmlSer;
-            Message ms = new Message(new To(), new From(), new List<User>(), new MessageBody());
+            Message ms = new Message(new User(), new User(), new List<User>(), new MessageBody());
             ms.From.Ip = Dns.GetHostEntry(Dns.GetHostName()).AddressList[2].ToString();
             ms.From.Name = "Marc";
             ms.To.Name = "AnyOne";
@@ -311,7 +373,6 @@ namespace SocketClientTest.Client
             if (mesReceived.Contains("<Message") && mesReceived.Contains("</Message"))
             {
                 string[] xmls = mesReceived.Split(new string[] { "</message>" }, StringSplitOptions.None);
-                Console.WriteLine("Message splitted");
                 Console.WriteLine(mesReceived);
                 mesReceived = string.Empty;
                 foreach (var item in xmls)
@@ -320,8 +381,10 @@ namespace SocketClientTest.Client
                     {
                         if (item.Contains("</Message>"))
                         {
-                            //if (!item.Contains("<RSAKeyValue"))
-                            messageBuffer.Add(item);
+                            if (!item.Contains("<RSAKeyValue"))
+                                MessageBuffer.Add(item);
+                            else if (item.Contains("<RSAKeyValue"))
+                                keyBuffer.Add(item);
                         }
                         else
                             mesReceived += item;
@@ -338,8 +401,10 @@ namespace SocketClientTest.Client
 
 
             // Tries to deserialize the objects in the buffer
-            DeSerializeObject(messageBuffer);
+            DeSerializeObject();
 
+            // Update online users
+            UpdateUsersOnline();
 
             // If any has been deserialized the print it (Only message + from user ip)
             PrintDSMessage();
@@ -356,15 +421,15 @@ namespace SocketClientTest.Client
                     {
                         if (item.Mb.Body != null)
                             Console.WriteLine("Message recieve from {0}. {1}", item.From.Ip, DecryptUsingAes(item.Mb.Body));
-                        if (item.Users.Count > 0)
-                        {
-                            for (int i = 0; i < item.Users.Count; i++)
-                            {
-                                var user = new User(item.Users[i].Name, item.Users[i].Ip);
-                                if (!Users.Contains(user))
-                                    Users.Add(new User(item.Users[i].Name, item.Users[i].Ip));
-                            }
-                        }
+                        //if (item.Users.Count > 0)
+                        //{
+                        //    for (int i = 0; i < item.Users.Count; i++)
+                        //    {
+                        //        var user = new User(item.Users[i].Name, item.Users[i].Ip);
+                        //        if (!UsersOnline.Contains(user))
+                        //            UsersOnline.Add(new User(item.Users[i].Name, item.Users[i].Ip));
+                        //    }
+                        //}
                     }
                     catch (Exception e)
                     {
@@ -376,36 +441,79 @@ namespace SocketClientTest.Client
         }
 
 
-        private void DeSerializeObject(List<string> messageBuffer)
+        private void DeSerializeObject()
         {
-            foreach (var item in messageBuffer)
+            foreach (var item in MessageBuffer)
             {
-                XmlSerializer de = new XmlSerializer(typeof(Message));
-                using (TextReader reader = new StringReader(item))
+                try
                 {
-                    try
+                    XmlSerializer de = new XmlSerializer(typeof(Message));
+                    using (TextReader reader = new StringReader(item))
                     {
                         result.Add(de.Deserialize(reader));
                     }
-                    catch (Exception e)
-                    {
-                        Console.WriteLine("Couldn't deserialize object");
-                        //Console.WriteLine(e.Message);
-                        //Console.WriteLine(e.StackTrace);
-                    }
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine("Couldn't deserialize object");
+                    //Console.WriteLine(e.Message);
+                    //Console.WriteLine(e.StackTrace);
                 }
             }
-            messageBuffer.Clear();
+            MessageBuffer.Clear();
         }
 
-        private void GetBufferValues(List<string> messageBuffer)
+        private void UpdateUsersOnline()
         {
-            foreach (var item in messageBuffer)
+            foreach (var item in keyBuffer)
             {
-                Console.WriteLine("Split message:");
-                Console.WriteLine(item);
-                Console.WriteLine("Split message end");
+                try
+                {
+                    XmlSerializer de = new XmlSerializer(typeof(Message));
+                    Message ms;
+                    using (TextReader reader = new StringReader(item))
+                    {
+                        //result.Add(de.Deserialize(reader));
+                        ms = (Message)de.Deserialize(reader);
+                        if (ms.Users.Count > 0)
+                        {
+                            List<User> msUsers = ms.Users;
+                            foreach (var user in msUsers)
+                            {
+                                bool exists = false;
+
+                                for (int i = 0; i < UsersOnline.Count; i++)
+                                {
+                                    if (user.Ip == UsersOnline[i].Ip)
+                                    {
+                                        if (user.RSAKeyValue != UsersOnline[i].RSAKeyValue)
+                                        {
+                                            UsersOnline[i].RSAKeyValue = user.RSAKeyValue;
+                                        }
+                                        exists = true;
+                                        break;
+                                    }
+                                }
+                                if (!exists)
+                                    UsersOnline.Add(user);
+                            }
+                            // TODO: Check if a user is disconnected
+                        }
+                    }
+                }
+                catch (Exception e)
+                {
+                    Console.ForegroundColor = ConsoleColor.Blue;
+                    Console.WriteLine(item);
+                    Console.WriteLine("Couldn't deserialize Key");
+                    //Console.WriteLine(e.Message);
+                    //Console.WriteLine(e.StackTrace);
+                    Console.ForegroundColor = ConsoleColor.White;
+
+                }
             }
+            keyBuffer.Clear();
         }
     }
+
 }

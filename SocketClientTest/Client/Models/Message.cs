@@ -8,20 +8,20 @@ namespace SocketClientTest.Client.Models
 {
     public class Message
     {
-        public To To { get; set; }
-        public From From { get; set; }
+        public User To { get; set; }
+        public User From { get; set; }
         public MessageBody Mb { get; set; }
         public List<User> Users { get; set; }
 
         public Message()
         {
-            To = new To();
-            From = new From();
+            To = new User();
+            From = new User();
             Mb = new MessageBody();
             Users = new List<User>();
         }
 
-        public Message(To to, From from, List<User> users, MessageBody messageBody)
+        public Message(User to, User from, List<User> users, MessageBody messageBody) 
         {
             To = to;
             From = from;
