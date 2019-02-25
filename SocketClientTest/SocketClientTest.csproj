@@ -84,6 +84,7 @@
     <Compile Include="Client\Models\Message.cs" />
     <Compile Include="Client\Models\MessageBody.cs" />
     <Compile Include="Client\Models\User.cs" />
+    <Compile Include="Client\OldClients\Class1.cs" />
     <Compile Include="Client\OldClients\Program.cs" />
     <Compile Include="Client\OldClients\SimpelAsyncClient.cs" />
     <Compile Include="Client\SimpelSocketClient.cs" />

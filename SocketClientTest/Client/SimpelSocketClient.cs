@@ -15,17 +15,18 @@ namespace SocketClientTest.Client
 {
     public class SimpelSocketClient
     {
-        Dictionary<User, string> UserAndKey = new Dictionary<User, string>();
-        public List<string> MessageBuffer { get; set; }
         private static List<string> keyBuffer = new List<string>();
         string mesReceived = string.Empty;
         List<object> result;
-        private static readonly byte[] Key = Convert.FromBase64String("W+jcxfBJm37AAZujiktg4qCdy3k8D+vIrj4exFxFpIY=");
+        private static readonly byte[] SymmetricKey = Convert.FromBase64String("W+jcxfBJm37AAZujiktg4qCdy3k8D+vIrj4exFxFpIY=");
         public List<User> UsersOnline { get; private set; }
 
         public int Port { get; set; }
         public string ServerIp { get; private set; }
         public TcpClient Master { get; set; }
+        public static List<string> KeyBuffer { get => keyBuffer; set => keyBuffer = value; }
+        public List<string> MessageBuffer { get; set; }
+
         static RSACryptoServiceProvider myKeyRSA = new RSACryptoServiceProvider(2048);
         static RSAParameters myRSAKeyInfo;
         private Task _reader;
@@ -33,8 +34,9 @@ namespace SocketClientTest.Client
 
         private SimpelSocketClient()
         {
-            //ipHost = Dns.GetHostEntry(Dns.GetHostName());
-            //myIp = ipHost.AddressList[2];
+            MessageBuffer = new List<string>();
+            result = new List<object>();
+            UsersOnline = new List<User>();
             MessageBuffer = new List<string>();
             result = new List<object>();
         }
@@ -45,11 +47,8 @@ namespace SocketClientTest.Client
         /// <param name="tcpSocket">TcpClient for the socket connection</param>
         /// <param name="port">Port of the server endpoint</param>
         /// <param name="serverEndPoint">Ip address of the server endpoint</param>
-        public SimpelSocketClient(TcpClient tcpSocket, int port, string serverEndPoint) : base()
+        public SimpelSocketClient(TcpClient tcpSocket, int port, string serverEndPoint) : this()
         {
-            UsersOnline = new List<User>();
-            MessageBuffer = new List<string>();
-            result = new List<object>();
             Master = tcpSocket;
             Port = port;
             ServerIp = serverEndPoint;
@@ -142,7 +141,7 @@ namespace SocketClientTest.Client
             ms.To.Name = "AnyOne";
             ms.To.Ip = recieverIp;
 
-            ms.Mb.Body = EncryptMessage(Key, message);
+            ms.Mb.Body = EncryptMessage(SymmetricKey, message);
             xmlSer = new XmlSerializer(typeof(Message));
             xmlSer.Serialize(ns, ms);
         }
@@ -155,7 +154,7 @@ namespace SocketClientTest.Client
                 myAes.Padding = PaddingMode.PKCS7;
                 myAes.KeySize = 128;
                 myAes.IV = new byte[128 / 8];
-                myAes.Key = Key;
+                myAes.Key = SymmetricKey;
                 //byte[] messBytes = Encoding.UTF8.GetBytes(message);
                 ICryptoTransform encr = myAes.CreateEncryptor(myAes.Key, myAes.IV);
 
@@ -177,42 +176,48 @@ namespace SocketClientTest.Client
         /// <summary>
         /// Encrypt a message using a users public key
         /// </summary>
-        /// <param name="key"></param>
-        /// <param name="message"></param>
-        /// <param name="user"></param>
-        /// <returns></returns>
-        private string EncryptMessage(string message, User user)
+        /// <param name="message">byte[] message to be encrypted</param>
+        /// <param name="user">user object containing the RSA key</param>
+        /// <returns>byte[] of encrypted data</returns>
+        private byte[] EncryptMessage(byte[] message, User user)
         {
-            byte[] encrypted;
+            byte[] encryptedText = null;
             User savedUser = UsersOnline.SingleOrDefault(u => u.Ip == user.Ip);
             if (savedUser != null)
             {
+                // Not needed
                 byte[] pubKey = Encoding.ASCII.GetBytes(savedUser.RSAKeyValue.Modulus); // TODO: Find if we have the user pub key
-
-                using (Aes myAes = Aes.Create())
+                using (RSACryptoServiceProvider rsa = new RSACryptoServiceProvider())
                 {
-                    myAes.Padding = PaddingMode.PKCS7;
-                    myAes.KeySize = 128;
-                    myAes.IV = new byte[128 / 8];
-                    myAes.Key = pubKey;
-                    //byte[] messBytes = Encoding.UTF8.GetBytes(message);
-                    ICryptoTransform encr = myAes.CreateEncryptor(myAes.Key, myAes.IV);
-
-                    using (MemoryStream ms = new MemoryStream())
-                    {
-                        using (CryptoStream cs = new CryptoStream(ms, encr, CryptoStreamMode.Write))
-                        {
-                            using (StreamWriter sw = new StreamWriter(cs))
-                            {
-                                sw.Write(message);
-                            }
-                            encrypted = ms.ToArray();
-                        }
-                    }
+                    // public keys can be read from the key string
+                    rsa.FromXmlString(savedUser.RSAKeyValue.Modulus);
+                    // Encrypt the data using rsa, the false param sets the padding - in this case its PKCS#1 v1.5
+                    encryptedText = rsa.Encrypt(message, false);
                 }
-                return Convert.ToBase64String(encrypted);
             }
-            return null;
+            return encryptedText;
+        }
+
+        /// <summary>
+        /// Decrypt message from a specified user - using the stored private RSA key
+        /// </summary>
+        /// <param name="message"><i>string</i> message to be decrypted</param>
+        /// <returns></returns>
+        private byte[] DecryptUsingRSA(string message)
+        {
+            // Save the message in an byte[]
+            byte[] dataToDecrypt = Encoding.ASCII.GetBytes(message);
+            // Create a byte[] for the decrypted message
+            byte[] decryptedData = null;
+
+            using (RSACryptoServiceProvider rsa = new RSACryptoServiceProvider())
+            {
+                // get the private key for decrypting
+                rsa.FromXmlString(myKeyRSA.ToXmlString(true));
+                // Decrypt the data
+                decryptedData = rsa.Decrypt(dataToDecrypt, false);
+            }
+            return decryptedData;
         }
 
         private string DecryptUsingAes(string body)
@@ -225,7 +230,7 @@ namespace SocketClientTest.Client
                 myAes.Padding = PaddingMode.PKCS7;
                 myAes.KeySize = 128;
                 myAes.IV = new byte[128 / 8];
-                myAes.Key = Key;
+                myAes.Key = SymmetricKey;
                 //byte[] messBytes = Encoding.UTF8.GetBytes(message);
                 ICryptoTransform encr = myAes.CreateDecryptor(myAes.Key, myAes.IV);
 
@@ -398,7 +403,7 @@ namespace SocketClientTest.Client
                             if (!item.Contains("<RSAKeyValue"))
                                 MessageBuffer.Add(item);
                             else if (item.Contains("<RSAKeyValue"))
-                                keyBuffer.Add(item);
+                                KeyBuffer.Add(item);
                         }
                         else
                             mesReceived += item;
@@ -479,7 +484,7 @@ namespace SocketClientTest.Client
 
         private void UpdateUsersOnline()
         {
-            foreach (var item in keyBuffer)
+            foreach (var item in KeyBuffer)
             {
                 try
                 {
@@ -526,7 +531,7 @@ namespace SocketClientTest.Client
 
                 }
             }
-            keyBuffer.Clear();
+            KeyBuffer.Clear();
         }
     }
 
