@@ -49,6 +49,9 @@
     <Compile Include="Models\User.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="SocketClient\IStreamReader.cs" />
+    <Compile Include="SocketClient\IStreamWriter.cs" />
+    <Compile Include="SocketClient\SocketClient.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
