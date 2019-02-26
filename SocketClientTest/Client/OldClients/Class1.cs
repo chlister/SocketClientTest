@@ -8,7 +8,7 @@ namespace AsymmetricTutorial
     class Class1
     {
 
-        static void Main(string[] args)
+        static void NotMain(string[] args)
         {
             // Create an instance of the RSA algorithm class  
             RSACryptoServiceProvider rsa = new RSACryptoServiceProvider();

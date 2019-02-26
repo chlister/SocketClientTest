@@ -15,11 +15,17 @@ namespace SocketClientTest.Client.Models
         private User _from;
         [OptionalField]
         private MessageBody _mb;
+        [OptionalField]
+        private string key;
+        [OptionalField]
+        private string iv;
 
         public User To { get => _to; set => _to = value; }
         public User From { get => _from; set => _from = value; }
         public MessageBody Mb { get => _mb; set => _mb = value; }
         public List<User> Users { get; set; }
+        public string Iv { get => iv; set => iv = value; }
+        public string Key { get => key; set => key = value; }
 
         public Message()
         {

@@ -16,5 +16,10 @@ namespace SocketClient.SocketClient
         /// <param name="networkStream"><i>NetworkStream</i> of a Socket</param>
         /// <param name="message"><i>Message</i> object containing who the message is intended and the message</param>
         void WriteToStream(NetworkStream networkStream, Message message);
+        /// <summary>
+        /// Sending bytes over the NetworkStream
+        /// </summary>
+        /// <param name="networkStream"></param>
+        void WriteToStream(NetworkStream networkStream, byte[] message);
     }
 }

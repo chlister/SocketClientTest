@@ -10,11 +10,13 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Linq;
 using System.Xml.Serialization;
+using System.Xml;
 
 namespace SocketClientTest.Client
 {
     public class SimpelSocketClient
     {
+        List<EncryptionHandler> UserKeyPairs = new List<EncryptionHandler>();
         private static List<string> keyBuffer = new List<string>();
         string mesReceived = string.Empty;
         List<object> result;
@@ -176,23 +178,58 @@ namespace SocketClientTest.Client
         /// <summary>
         /// Encrypt a message using a users public key
         /// </summary>
-        /// <param name="message">byte[] message to be encrypted</param>
-        /// <param name="user">user object containing the RSA key</param>
+        /// <param name="message"><i>byte[]</i> message to be encrypted</param>
+        /// <param name="user"><i>User</i> object containing the RSA key</param>
         /// <returns>byte[] of encrypted data</returns>
-        private byte[] EncryptMessage(byte[] message, User user)
+        public byte[] EncryptMessageUsingRSA(byte[] message, User user)
         {
             byte[] encryptedText = null;
             User savedUser = UsersOnline.SingleOrDefault(u => u.Ip == user.Ip);
-            if (savedUser != null)
+            if (savedUser == null)
             {
-                // Not needed
-                byte[] pubKey = Encoding.ASCII.GetBytes(savedUser.RSAKeyValue.Modulus); // TODO: Find if we have the user pub key
-                using (RSACryptoServiceProvider rsa = new RSACryptoServiceProvider())
+                // TODO: Find if we have the user priv key
+                // TODO: Find if we have the user priv iv
+                var keyPairs = UserKeyPairs.SingleOrDefault(u => u.User == savedUser);
+                if (keyPairs != null)
                 {
-                    // public keys can be read from the key string
-                    rsa.FromXmlString(savedUser.RSAKeyValue.Modulus);
-                    // Encrypt the data using rsa, the false param sets the padding - in this case its PKCS#1 v1.5
-                    encryptedText = rsa.Encrypt(message, false);
+                    using (Aes myAes = Aes.Create())
+                    {
+                        myAes.Padding = PaddingMode.PKCS7;
+                        myAes.KeySize = keyPairs.EncryptionKey.Length;
+                        myAes.IV = keyPairs.EncryptionIV;
+                        myAes.Key = keyPairs.EncryptionKey;
+                        ICryptoTransform encr = myAes.CreateEncryptor(myAes.Key, myAes.IV);
+
+                        using (MemoryStream ms = new MemoryStream())
+                        {
+                            using (CryptoStream cs = new CryptoStream(ms, encr, CryptoStreamMode.Write))
+                            {
+                                using (StreamWriter sw = new StreamWriter(cs))
+                                {
+                                    sw.Write(message);
+                                }
+                                encryptedText = ms.ToArray();
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("User key and IV missing... Sending key and IV for communication");
+                    // TODO: Send symmetric key and IV for coms 
+                    using (Aes AES = Aes.Create())
+                    {
+                        AES.Padding = PaddingMode.PKCS7;
+                        AES.KeySize = 128;
+                        AES.GenerateIV();
+                        AES.GenerateKey();
+
+                        ICryptoTransform enc = AES.CreateEncryptor(AES.Key, AES.IV);
+                        using (MemoryStream ms = new MemoryStream())
+                        {
+
+                        }
+                    }
                 }
             }
             return encryptedText;
@@ -210,12 +247,14 @@ namespace SocketClientTest.Client
             // Create a byte[] for the decrypted message
             byte[] decryptedData = null;
 
+            // Chech if we are ready for symmetric com
+
             using (RSACryptoServiceProvider rsa = new RSACryptoServiceProvider())
             {
                 // get the private key for decrypting
                 rsa.FromXmlString(myKeyRSA.ToXmlString(true));
                 // Decrypt the data
-                decryptedData = rsa.Decrypt(dataToDecrypt, false);
+                decryptedData = myKeyRSA.Decrypt(dataToDecrypt, false);
             }
             return decryptedData;
         }
@@ -332,6 +371,12 @@ namespace SocketClientTest.Client
                         if (bytesRead > 0)
                             ReadResponse(bytesRead, buffer, MessageBuffer);
                     }
+                }
+                catch (OverflowException e)
+                {
+                    Console.WriteLine("Overflow exception");
+                    Console.WriteLine(e.StackTrace);
+                    Console.WriteLine(e.Message);
                 }
                 catch (ArgumentOutOfRangeException e)
                 {
@@ -525,6 +570,9 @@ namespace SocketClientTest.Client
                     Console.ForegroundColor = ConsoleColor.Blue;
                     Console.WriteLine(item);
                     Console.WriteLine("Couldn't deserialize Key");
+                    Console.WriteLine(e.Message);
+                    Console.WriteLine(e.StackTrace);
+                    Console.WriteLine(e.InnerException);
                     //Console.WriteLine(e.Message);
                     //Console.WriteLine(e.StackTrace);
                     Console.ForegroundColor = ConsoleColor.White;
